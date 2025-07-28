@@ -3,7 +3,7 @@ import * as cheerio from "cheerio"
 import { GoogleGenerativeAI } from "@google/generative-ai"
 import { AbortSignal } from "abort-controller"
 
-const genAI = new GoogleGenerativeAI("AIzaSyBg8Pwp9JNZ7cq9HfN_XVo7k6vVViyNl5M")
+const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY || "")
 
 export async function POST(request: NextRequest) {
   try {

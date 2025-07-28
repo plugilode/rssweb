@@ -18,6 +18,11 @@ yarn-error.log*
 
 # env files
 .env*
+!.env.example
+
+# secrets
+secrets/*
+!secrets/README.md
 
 # vercel
 .vercel

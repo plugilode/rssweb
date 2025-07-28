@@ -1,8 +1,9 @@
 import { type NextRequest, NextResponse } from "next/server"
 import { GoogleGenerativeAI } from "@google/generative-ai"
+import { getGeminiApiKey } from "@/lib/getGeminiKey"
 import * as cheerio from "cheerio"
 
-const genAI = new GoogleGenerativeAI("AIzaSyBg8Pwp9JNZ7cq9HfN_XVo7k6vVViyNl5M")
+const genAI = new GoogleGenerativeAI(getGeminiApiKey())
 
 // Check if we're in a serverless environment where Puppeteer might not work
 const isServerlessEnvironment = process.env.VERCEL || process.env.NETLIFY || process.env.AWS_LAMBDA_FUNCTION_NAME
@@ -144,36 +145,40 @@ async function getScreenshotViaPuppeteer(url: string) {
 }
 
 async function getScreenshotViaService(url: string) {
-  try {
-    // Use a free screenshot service API
-    const screenshotUrl = `https://api.screenshotmachine.com/?key=demo&url=${encodeURIComponent(url)}&dimension=1920x1080&format=png&cacheLimit=0`
+  const services = [
+    `https://image.thum.io/get/fullpage/${encodeURIComponent(url)}`,
+    `https://api.screenshotmachine.com/?key=demo&url=${encodeURIComponent(url)}&dimension=1920x1080&format=png&cacheLimit=0`,
+  ]
 
-    const response = await fetch(screenshotUrl, {
-      timeout: 30000,
-    })
+  for (const screenshotUrl of services) {
+    try {
+      const response = await fetch(screenshotUrl, { timeout: 30000 })
 
-    if (!response.ok) {
-      throw new Error(`Screenshot service returned ${response.status}`)
+      if (!response.ok) {
+        console.warn(`Screenshot service ${screenshotUrl} returned ${response.status}`)
+        continue
+      }
+
+      const imageBuffer = await response.arrayBuffer()
+      const base64Screenshot = Buffer.from(imageBuffer).toString("base64")
+
+      const pageHtml = await fetchPageHtml(url)
+      const $ = cheerio.load(pageHtml)
+      const pageTitle = $("title").text() || "Unknown Page"
+
+      return {
+        success: true,
+        screenshot: `data:image/png;base64,${base64Screenshot}`,
+        pageTitle,
+        method: "service",
+      }
+    } catch (error) {
+      console.error(`Screenshot service attempt failed:`, error)
+      continue
     }
-
-    const imageBuffer = await response.arrayBuffer()
-    const base64Screenshot = Buffer.from(imageBuffer).toString("base64")
-
-    // Get page title separately
-    const pageHtml = await fetchPageHtml(url)
-    const $ = cheerio.load(pageHtml)
-    const pageTitle = $("title").text() || "Unknown Page"
-
-    return {
-      success: true,
-      screenshot: `data:image/png;base64,${base64Screenshot}`,
-      pageTitle,
-      method: "service",
-    }
-  } catch (error) {
-    console.error("Screenshot service failed:", error)
-    return { success: false, error: error instanceof Error ? error.message : "Screenshot service failed" }
   }
+
+  return { success: false, error: "Screenshot service failed" }
 }
 
 async function performHtmlOnlyAnalysis(url: string) {
@@ -212,18 +217,63 @@ async function performHtmlOnlyAnalysis(url: string) {
 }
 
 async function fetchPageHtml(url: string): Promise<string> {
-  const response = await fetch(url, {
-    headers: {
-      "User-Agent":
-        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36",
-    },
-  })
+  try {
+    const response = await fetch(url, {
+      headers: {
+        "User-Agent":
+          "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36",
+      },
+    })
 
-  if (!response.ok) {
-    throw new Error(`Failed to fetch page: ${response.status} ${response.statusText}`)
+    if (!response.ok) {
+      throw new Error(`Fetch returned ${response.status}`)
+    }
+
+    const html = await response.text()
+    if (html.trim().length > 500) {
+      return html
+    }
+
+    console.warn("HTML content appears short, trying Puppeteer fallback")
+    return await fetchPageHtmlPuppeteer(url)
+  } catch (error) {
+    console.warn("Standard fetch failed, trying Puppeteer", error)
+    return await fetchPageHtmlPuppeteer(url)
+  }
+}
+
+async function fetchPageHtmlPuppeteer(url: string): Promise<string> {
+  const puppeteer = await import("puppeteer").catch(() => null)
+  if (!puppeteer) {
+    throw new Error("Puppeteer not available")
   }
 
-  return await response.text()
+  const browser = await puppeteer.launch({
+    headless: true,
+    args: [
+      "--no-sandbox",
+      "--disable-setuid-sandbox",
+      "--disable-dev-shm-usage",
+      "--disable-accelerated-2d-canvas",
+      "--no-first-run",
+      "--no-zygote",
+      "--disable-gpu",
+      "--disable-web-security",
+      "--disable-features=VizDisplayCompositor",
+    ],
+  })
+
+  const page = await browser.newPage()
+  await page.setUserAgent(
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36",
+  )
+
+  await page.goto(url, { waitUntil: "networkidle2", timeout: 30000 })
+  await page.waitForTimeout(3000)
+  const html = await page.content()
+  await browser.close()
+
+  return html
 }
 
 async function analyzeHtmlStructure($: cheerio.CheerioAPI, url: string) {

@@ -1,8 +1,9 @@
 import { type NextRequest, NextResponse } from "next/server"
 import * as cheerio from "cheerio"
 import { GoogleGenerativeAI } from "@google/generative-ai"
+import { getGeminiApiKey } from "@/lib/getGeminiKey"
 
-const genAI = new GoogleGenerativeAI("AIzaSyBg8Pwp9JNZ7cq9HfN_XVo7k6vVViyNl5M")
+const genAI = new GoogleGenerativeAI(getGeminiApiKey())
 
 async function crawlSubpages(url: string, maxPages = 5): Promise<string[]> {
   const subpages: string[] = []

@@ -1,9 +1,10 @@
 import { type NextRequest, NextResponse } from "next/server"
 import * as cheerio from "cheerio"
 import { GoogleGenerativeAI } from "@google/generative-ai"
+import { getGeminiApiKey } from "@/lib/getGeminiKey"
 import { AbortSignal } from "abort-controller"
 
-const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY || "")
+const genAI = new GoogleGenerativeAI(getGeminiApiKey())
 
 export async function POST(request: NextRequest) {
   try {

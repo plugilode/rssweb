@@ -1,8 +1,9 @@
 import { type NextRequest, NextResponse } from "next/server"
 import { GoogleGenerativeAI } from "@google/generative-ai"
+import { getGeminiApiKey } from "@/lib/getGeminiKey"
 import * as cheerio from "cheerio"
 
-const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY || "")
+const genAI = new GoogleGenerativeAI(getGeminiApiKey())
 
 // Check if we're in a serverless environment where Puppeteer might not work
 const isServerlessEnvironment = process.env.VERCEL || process.env.NETLIFY || process.env.AWS_LAMBDA_FUNCTION_NAME

@@ -20,6 +20,10 @@ yarn-error.log*
 .env*
 !.env.example
 
+# secrets
+secrets/*
+!secrets/README.md
+
 # vercel
 .vercel
 

@@ -1,8 +1,9 @@
 import { type NextRequest, NextResponse } from "next/server"
 import * as cheerio from "cheerio"
 import { GoogleGenerativeAI } from "@google/generative-ai"
+import { getGeminiApiKey } from "@/lib/getGeminiKey"
 
-const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY || "")
+const genAI = new GoogleGenerativeAI(getGeminiApiKey())
 
 async function findPaginationLinks($: cheerio.CheerioAPI, baseUrl: string): Promise<string[]> {
   const paginationUrls: string[] = []

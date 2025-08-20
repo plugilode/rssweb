@@ -2,7 +2,13 @@ import { type NextRequest, NextResponse } from "next/server"
 import { GoogleGenerativeAI } from "@google/generative-ai"
 import * as cheerio from "cheerio"
 
-const genAI = new GoogleGenerativeAI("AIzaSyBg8Pwp9JNZ7cq9HfN_XVo7k6vVViyNl5M")
+const GEMINI_API_KEY = process.env.GEMINI_API_KEY || ""
+if (!GEMINI_API_KEY) {
+  console.error("GEMINI_API_KEY is not set in the environment variables")
+}
+const genAI = new GoogleGenerativeAI(GEMINI_API_KEY)
+
+const SCREENSHOT_API_KEY = process.env.SCREENSHOT_API_KEY || ""
 
 // Check if we're in a serverless environment where Puppeteer might not work
 const isServerlessEnvironment = process.env.VERCEL || process.env.NETLIFY || process.env.AWS_LAMBDA_FUNCTION_NAME
@@ -145,8 +151,15 @@ async function getScreenshotViaPuppeteer(url: string) {
 
 async function getScreenshotViaService(url: string) {
   try {
+    if (!SCREENSHOT_API_KEY) {
+      console.warn("SCREENSHOT_API_KEY is not set, using demo key.")
+    }
+    const apiKey = SCREENSHOT_API_KEY || "demo"
+
     // Use a free screenshot service API
-    const screenshotUrl = `https://api.screenshotmachine.com/?key=demo&url=${encodeURIComponent(url)}&dimension=1920x1080&format=png&cacheLimit=0`
+    const screenshotUrl = `https://api.screenshotmachine.com/?key=${apiKey}&url=${encodeURIComponent(
+      url,
+    )}&dimension=1920x1080&format=png&cacheLimit=0`
 
     const response = await fetch(screenshotUrl, {
       timeout: 30000,

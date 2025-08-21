@@ -88,3 +88,54 @@
     @apply bg-background text-foreground;
   }
 }
+
+/* Newspaper styles */
+.newspaper-container {
+  font-family: 'Times New Roman', Times, serif;
+  background-color: #fdf5e6;
+  padding: 20px;
+  max-width: 1200px;
+  margin: auto;
+}
+.newspaper-header {
+  text-align: center;
+  border-bottom: 4px double #333;
+  padding-bottom: 10px;
+  margin-bottom: 20px;
+}
+.newspaper-title {
+  font-size: 4rem;
+  font-weight: bold;
+  margin: 0;
+  font-family: 'Playfair Display', serif;
+}
+.newspaper-date {
+  font-size: 1.2rem;
+  color: #666;
+}
+.newspaper-columns {
+  column-count: 3;
+  column-gap: 40px;
+  column-rule: 1px solid #ccc;
+}
+.newspaper-article {
+  break-inside: avoid-column;
+  padding-bottom: 20px;
+  margin-bottom: 20px;
+  border-bottom: 1px solid #ccc;
+}
+.newspaper-article-title {
+  font-size: 1.5rem;
+  font-weight: bold;
+  margin-bottom: 10px;
+}
+.newspaper-article-description {
+  font-size: 1rem;
+  line-height: 1.4;
+}
+.newspaper-article-link {
+  font-size: 0.9rem;
+  color: #333;
+  text-decoration: none;
+  font-weight: bold;
+}

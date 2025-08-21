@@ -50,22 +50,6 @@ interface CrawlStats {
   duplicatesRemoved: number
 }
 
-interface VisionAnalysis {
-  contentType: string
-  mainContentAreas: Array<{
-    description: string
-    location: string
-    importance: string
-    contentPattern: string
-  }>
-  recommendedFocus: string
-  layoutType: string
-  excludeAreas: string[]
-  confidence: string
-  error?: string
-  method?: string
-}
-
 export default function ConvertPage() {
   const [mounted, setMounted] = useState(false)
   const [url, setUrl] = useState("")
@@ -76,131 +60,17 @@ export default function ConvertPage() {
   const [feedPreview, setFeedPreview] = useState<FeedPreview | null>(null)
   const [feedXml, setFeedXml] = useState("")
   const [feedUrl, setFeedUrl] = useState("")
+  const [newspaperHtml, setNewspaperHtml] = useState("")
   const [error, setError] = useState<string>("")
-  const [step, setStep] = useState<"input" | "vision" | "preview" | "generated">("input")
+  const [step, setStep] = useState<"input" | "preview" | "generated">("input")
   const [crawlStats, setCrawlStats] = useState<CrawlStats | null>(null)
   const [pagesCrawled, setPagesCrawled] = useState(0)
   const [totalPagesFound, setTotalPagesFound] = useState(0)
-  const [useVision, setUseVision] = useState(true)
-  const [screenshot, setScreenshot] = useState<string>("")
-  const [visionAnalysis, setVisionAnalysis] = useState<VisionAnalysis | null>(null)
-  const [detectedSelectors, setDetectedSelectors] = useState<any>(null)
   const [analysisMethod, setAnalysisMethod] = useState<string>("")
 
   useEffect(() => {
     setMounted(true)
   }, [])
-
-  const handleVisionAnalysis = async () => {
-    if (!url) return
-
-    setError("")
-    setLoading(true)
-    setStep("input")
-
-    try {
-      console.log("Starting vision analysis for:", url)
-
-      const response = await fetch("/api/vision-analyze", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ url }),
-      })
-
-      console.log("Response status:", response.status)
-
-      // Check if response is actually JSON
-      const contentType = response.headers.get("content-type")
-      if (!contentType || !contentType.includes("application/json")) {
-        const textResponse = await response.text()
-        console.error("Non-JSON response:", textResponse.substring(0, 500))
-        throw new Error(
-          `Server error: The vision analysis service is currently unavailable. Please try traditional scraping instead.`,
-        )
-      }
-
-      const data = await response.json()
-      console.log("Vision analysis response:", data)
-
-      if (data.success) {
-        setScreenshot(data.screenshot)
-        setVisionAnalysis(data.analysis)
-        setDetectedSelectors(data.selectors)
-        setFeedTitle(data.pageTitle || "")
-        setAnalysisMethod(data.method || "unknown")
-        setStep("vision")
-        setError("")
-      } else {
-        if (data.fallbackAvailable) {
-          // Automatically fall back to traditional scraping
-          console.log("Vision analysis failed, falling back to traditional scraping")
-          await handleScrapeWebsite()
-          return
-        } else {
-          setError(data.error || "Vision analysis failed")
-        }
-      }
-    } catch (error) {
-      console.error("Vision analysis failed:", error)
-      let errorMessage = "Vision analysis failed"
-
-      if (error instanceof Error) {
-        errorMessage = error.message
-      } else if (typeof error === "string") {
-        errorMessage = error
-      }
-
-      // If vision analysis fails, automatically try traditional scraping
-      console.log("Vision analysis failed, automatically trying traditional scraping...")
-      setError("")
-      await handleScrapeWebsite()
-    } finally {
-      setLoading(false)
-    }
-  }
-
-  const handleScrapeWithVision = async () => {
-    if (!detectedSelectors || !visionAnalysis) return
-
-    setError("")
-    setLoading(true)
-
-    try {
-      const response = await fetch("/api/vision-preview-content", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          url,
-          selectors: detectedSelectors,
-          analysis: visionAnalysis,
-        }),
-      })
-
-      if (!response.ok) {
-        const errorData = await response.json()
-        throw new Error(errorData.error || `HTTP ${response.status}`)
-      }
-
-      const data = await response.json()
-
-      if (data.success) {
-        setPreviewItems(data.items)
-        setStep("preview")
-        setError("")
-        setCrawlStats(data.stats)
-        setPagesCrawled(data.pagesCrawled)
-        setTotalPagesFound(data.totalPagesFound)
-      } else {
-        setError(data.error)
-      }
-    } catch (error) {
-      console.error("Vision-guided scraping failed:", error)
-      const errorMessage = error instanceof Error ? error.message : "Network error occurred"
-      setError(errorMessage)
-    } finally {
-      setLoading(false)
-    }
-  }
 
   const handleScrapeWebsite = async () => {
     if (!url) return
@@ -272,6 +142,7 @@ export default function ConvertPage() {
         setFeedUrl(data.feedUrl)
         setStep("generated")
         setError("")
+        handleGenerateNewspaper(data.preview.items, data.preview.title)
       } else {
         setError(data.error)
       }
@@ -281,6 +152,26 @@ export default function ConvertPage() {
       setError(errorMessage)
     } finally {
       setGenerating(false)
+    }
+  }
+
+  const handleGenerateNewspaper = async (items: ContentItem[], title: string) => {
+    try {
+      const response = await fetch("/api/generate-newspaper", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          items,
+          title,
+          url,
+        }),
+      })
+      const data = await response.json()
+      if (data.success) {
+        setNewspaperHtml(data.html)
+      }
+    } catch (error) {
+      console.error("Newspaper generation failed:", error)
     }
   }
 
@@ -376,8 +267,7 @@ export default function ConvertPage() {
           <div className="text-center mb-8">
             <h1 className="text-3xl font-bold text-gray-900 mb-2">Convert Website to RSS</h1>
             <p className="text-gray-600">
-              {step === "input" && "Choose between AI vision analysis or traditional scraping"}
-              {step === "vision" && "Review the AI's analysis of the website"}
+              {step === "input" && "Enter a URL to begin scraping for content"}
               {step === "preview" && "Select the items you want to include in your RSS feed"}
               {step === "generated" && "Your RSS feed has been generated successfully"}
             </p>
@@ -415,231 +305,25 @@ export default function ConvertPage() {
                     />
                   </div>
 
-                  <div className="space-y-3">
-                    <div className="flex items-center space-x-2">
-                      <Checkbox
-                        id="useVision"
-                        checked={useVision}
-                        onCheckedChange={(checked) => setUseVision(checked as boolean)}
-                      />
-                      <Label htmlFor="useVision" className="text-sm font-medium">
-                        Try AI Vision Analysis (Smart Mode)
-                      </Label>
-                      <Badge variant="secondary" className="text-xs">
-                        SMART
-                      </Badge>
-                    </div>
-                    <p className="text-sm text-gray-500 ml-6">
-                      {useVision
-                        ? "AI will attempt to visually analyze the website layout for better content detection. Falls back to traditional scraping if unavailable."
-                        : "Traditional HTML analysis will be used to detect content patterns"}
-                    </p>
-                    {useVision && (
-                      <div className="ml-6 p-3 bg-blue-50 border border-blue-200 rounded text-sm">
-                        <div className="flex items-start space-x-2">
-                          <Info className="h-4 w-4 text-blue-600 mt-0.5 flex-shrink-0" />
-                          <div>
-                            <strong className="text-blue-800">Smart Mode:</strong>
-                            <span className="text-blue-700 ml-1">
-                              Attempts visual analysis first, automatically falls back to traditional scraping if
-                              needed. This provides the best results in most cases.
-                            </span>
-                          </div>
-                        </div>
-                      </div>
-                    )}
-                  </div>
-
-                  {useVision ? (
-                    <Button
-                      onClick={handleVisionAnalysis}
-                      disabled={!url || loading}
-                      className="w-full bg-purple-500 hover:bg-purple-600 text-white py-3"
-                      size="lg"
-                    >
-                      {loading ? (
-                        <>
-                          <Loader2 className="mr-2 h-5 w-5 animate-spin" />
-                          Analyzing Website (Smart Mode)...
-                        </>
-                      ) : (
-                        <>
-                          <Camera className="mr-2 h-5 w-5" />
-                          Start Smart Analysis
-                        </>
-                      )}
-                    </Button>
-                  ) : (
-                    <Button
-                      onClick={handleScrapeWebsite}
-                      disabled={!url || loading}
-                      className="w-full bg-teal-500 hover:bg-teal-600 text-white py-3"
-                      size="lg"
-                    >
-                      {loading ? (
-                        <>
-                          <Loader2 className="mr-2 h-5 w-5 animate-spin" />
-                          Scraping Website & Subpages...
-                        </>
-                      ) : (
-                        <>
-                          <Eye className="mr-2 h-5 w-5" />
-                          Traditional Scrape & Preview
-                        </>
-                      )}
-                    </Button>
-                  )}
-                </CardContent>
-              </Card>
-            </div>
-          )}
-
-          {/* Step 2: Vision Analysis Results */}
-          {step === "vision" && visionAnalysis && (
-            <div className="space-y-6">
-              <Card>
-                <CardHeader>
-                  <CardTitle className="flex items-center justify-between">
-                    <div className="flex items-center space-x-2">
-                      <Camera className="h-5 w-5 text-purple-500" />
-                      <span>AI Analysis Results</span>
-                      <Badge variant={visionAnalysis.confidence === "high" ? "default" : "secondary"}>
-                        {visionAnalysis.confidence} confidence
-                      </Badge>
-                      {analysisMethod && (
-                        <Badge variant="outline" className="text-xs">
-                          {analysisMethod === "html-only" ? "HTML Analysis" : analysisMethod}
-                        </Badge>
-                      )}
-                    </div>
-                    <Button variant="outline" onClick={resetToInput} size="sm">
-                      <ArrowLeft className="mr-2 h-4 w-4" />
-                      Back to URL
-                    </Button>
-                  </CardTitle>
-                </CardHeader>
-                <CardContent className="space-y-6">
-                  {analysisMethod === "html-only" && (
-                    <Alert className="border-blue-200 bg-blue-50">
-                      <Info className="h-4 w-4 text-blue-600" />
-                      <AlertDescription className="text-blue-800">
-                        <strong>HTML Analysis Mode:</strong> Visual screenshot analysis wasn't available, so we analyzed
-                        the HTML structure instead. This still provides intelligent content detection.
-                      </AlertDescription>
-                    </Alert>
-                  )}
-
-                  <div className="grid md:grid-cols-2 gap-6">
-                    {/* Screenshot */}
-                    <div>
-                      <h4 className="font-medium text-gray-900 mb-3">
-                        Website {screenshot ? "Screenshot" : "Analysis"}
-                      </h4>
-                      <div className="border rounded-lg overflow-hidden">
-                        {screenshot ? (
-                          <img
-                            src={screenshot || "/placeholder.svg"}
-                            alt="Website screenshot"
-                            className="w-full h-auto max-h-96 object-contain"
-                          />
-                        ) : (
-                          <div className="w-full h-48 bg-gradient-to-br from-blue-50 to-purple-50 flex items-center justify-center">
-                            <div className="text-center">
-                              <Brain className="h-12 w-12 text-blue-500 mx-auto mb-2" />
-                              <span className="text-gray-600">HTML Structure Analysis</span>
-                            </div>
-                          </div>
-                        )}
-                      </div>
-                    </div>
-
-                    {/* Analysis Results */}
-                    <div className="space-y-4">
-                      <div>
-                        <h4 className="font-medium text-gray-900 mb-2">Content Analysis</h4>
-                        <div className="space-y-2 text-sm">
-                          <div className="flex justify-between">
-                            <span className="text-gray-600">Content Type:</span>
-                            <Badge variant="outline">{visionAnalysis.contentType}</Badge>
-                          </div>
-                          <div className="flex justify-between">
-                            <span className="text-gray-600">Layout Type:</span>
-                            <Badge variant="outline">{visionAnalysis.layoutType}</Badge>
-                          </div>
-                        </div>
-                      </div>
-
-                      <div>
-                        <h4 className="font-medium text-gray-900 mb-2">Main Content Areas</h4>
-                        <div className="space-y-2">
-                          {visionAnalysis.mainContentAreas.map((area, index) => (
-                            <div key={index} className="bg-gray-50 p-3 rounded text-sm">
-                              <div className="flex items-center justify-between mb-1">
-                                <span className="font-medium">{area.description}</span>
-                                <Badge
-                                  variant={area.importance === "high" ? "default" : "secondary"}
-                                  className="text-xs"
-                                >
-                                  {area.importance}
-                                </Badge>
-                              </div>
-                              <div className="text-gray-600 text-xs">
-                                Location: {area.location} • Pattern: {area.contentPattern}
-                              </div>
-                            </div>
-                          ))}
-                        </div>
-                      </div>
-
-                      <div>
-                        <h4 className="font-medium text-gray-900 mb-2">Recommended Focus</h4>
-                        <p className="text-sm text-gray-600 bg-blue-50 p-3 rounded">
-                          {visionAnalysis.recommendedFocus}
-                        </p>
-                      </div>
-
-                      {detectedSelectors && (
-                        <div>
-                          <h4 className="font-medium text-gray-900 mb-2">Generated Selectors</h4>
-                          <div className="bg-gray-50 p-3 rounded text-xs font-mono space-y-1">
-                            <div>
-                              <span className="text-blue-600">Item:</span> {detectedSelectors.item}
-                            </div>
-                            <div>
-                              <span className="text-green-600">Title:</span> {detectedSelectors.title}
-                            </div>
-                            <div>
-                              <span className="text-purple-600">Link:</span> {detectedSelectors.link}
-                            </div>
-                            {detectedSelectors.description && (
-                              <div>
-                                <span className="text-orange-600">Description:</span> {detectedSelectors.description}
-                              </div>
-                            )}
-                          </div>
-                          {detectedSelectors.reasoning && (
-                            <p className="text-xs text-gray-600 mt-2 italic">{detectedSelectors.reasoning}</p>
-                          )}
-                        </div>
-                      )}
-                    </div>
-                  </div>
+                  <p className="text-sm text-gray-500">
+                    Enter a website URL to automatically detect content and generate an RSS feed.
+                  </p>
 
                   <Button
-                    onClick={handleScrapeWithVision}
-                    disabled={loading}
-                    className="w-full bg-purple-500 hover:bg-purple-600 text-white py-3"
+                    onClick={handleScrapeWebsite}
+                    disabled={!url || loading}
+                    className="w-full bg-teal-500 hover:bg-teal-600 text-white py-3"
                     size="lg"
                   >
                     {loading ? (
                       <>
                         <Loader2 className="mr-2 h-5 w-5 animate-spin" />
-                        Scraping with AI Guidance...
+                        Scraping Website & Subpages...
                       </>
                     ) : (
                       <>
-                        <Zap className="mr-2 h-5 w-5" />
-                        Proceed with AI-Guided Scraping
+                        <Eye className="mr-2 h-5 w-5" />
+                        Scrape & Preview
                       </>
                     )}
                   </Button>
@@ -648,7 +332,7 @@ export default function ConvertPage() {
             </div>
           )}
 
-          {/* Step 3: Preview and Select Items */}
+          {/* Step 2: Preview and Select Items */}
           {step === "preview" && (
             <div className="space-y-6">
               {/* Stats Card */}
@@ -858,9 +542,10 @@ export default function ConvertPage() {
                 </CardHeader>
                 <CardContent>
                   <Tabs defaultValue="preview" className="w-full">
-                    <TabsList className="grid w-full grid-cols-2">
+                    <TabsList className="grid w-full grid-cols-3">
                       <TabsTrigger value="preview">Preview</TabsTrigger>
                       <TabsTrigger value="xml">Raw XML</TabsTrigger>
+                      <TabsTrigger value="newspaper">Newspaper</TabsTrigger>
                     </TabsList>
 
                     <TabsContent value="preview" className="space-y-4 mt-4">
@@ -896,6 +581,20 @@ export default function ConvertPage() {
 
                     <TabsContent value="xml" className="mt-4">
                       <Textarea value={feedXml} readOnly className="font-mono text-xs h-96 resize-none" />
+                    </TabsContent>
+
+                    <TabsContent value="newspaper" className="mt-4">
+                      {newspaperHtml ? (
+                        <iframe
+                          srcDoc={newspaperHtml}
+                          className="w-full h-96 border rounded-lg"
+                          title="Newspaper Preview"
+                        />
+                      ) : (
+                        <div className="flex items-center justify-center h-96 border rounded-lg">
+                          <Loader2 className="h-8 w-8 animate-spin text-teal-500" />
+                        </div>
+                      )}
                     </TabsContent>
                   </Tabs>
                 </CardContent>

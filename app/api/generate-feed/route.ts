@@ -1,9 +1,11 @@
 import { type NextRequest, NextResponse } from "next/server"
 import * as cheerio from "cheerio"
 import RSS from "rss"
-import { GoogleGenerativeAI } from "@google/generative-ai"
+import Groq from "groq-sdk"
 
-const genAI = new GoogleGenerativeAI("AIzaSyBg8Pwp9JNZ7cq9HfN_XVo7k6vVViyNl5M")
+const groq = new Groq({
+  apiKey: process.env.GROQ_API_KEY,
+})
 
 async function crawlSubpages(baseUrl: string, maxPages = 25): Promise<string[]> {
   const urls = [baseUrl]
@@ -90,7 +92,7 @@ export async function POST(request: NextRequest) {
       if (mainPageResponse.ok) {
         const mainPageHtml = await mainPageResponse.text()
         const cleanedHtml = prepareHtmlForAI(cheerio.load(mainPageHtml))
-        finalSelectors = await detectContentWithGemini(cleanedHtml, url)
+        finalSelectors = await detectContentWithGroq(cleanedHtml, url)
       } else {
         finalSelectors = fallbackDetection()
       }
@@ -173,26 +175,31 @@ export async function POST(request: NextRequest) {
     // Sort by title and limit to maxItems
     const items = uniqueItems.sort((a, b) => a.title.localeCompare(b.title)).slice(0, maxItems)
 
+    // Fetch main page to get the title
+    let finalFeedTitle = feedTitle || "RSS Feed"
+    try {
+      const mainPageResponse = await fetch(url, {
+        headers: {
+          "User-Agent": "Mozilla/5.0 (compatible; RSS-Converter/1.0)",
+        },
+      })
+      if (mainPageResponse.ok) {
+        const mainPageHtml = await mainPageResponse.text()
+        const mainPage$ = cheerio.load(mainPageHtml)
+        finalFeedTitle = feedTitle || mainPage$("title").text() || "RSS Feed"
+      }
+    } catch (e) {
+      // Ignore error, use default title
+    }
+
     // Create RSS feed
     const feed = new RSS({
-      title: feedTitle || "RSS Feed",
+      title: finalFeedTitle,
       description: `RSS feed generated from ${url}`,
       feed_url: `${process.env.NEXT_PUBLIC_BASE_URL || "http://localhost:3000"}/api/feed/${Date.now()}`,
       site_url: url,
       language: "en",
     })
-
-    const mainPageResponse = await fetch(url, {
-      headers: {
-        "User-Agent": "Mozilla/5.0 (compatible; RSS-Converter/1.0)",
-      },
-    })
-
-    if (mainPageResponse.ok) {
-      const mainPageHtml = await mainPageResponse.text()
-      const mainPage$ = cheerio.load(mainPageHtml)
-      feed.title(feedTitle || mainPage$("title").text() || "RSS Feed")
-    }
 
     items.forEach((item) => {
       feed.item({
@@ -224,15 +231,18 @@ export async function POST(request: NextRequest) {
     })
   } catch (error) {
     console.error("Feed generation error:", error)
-    return NextResponse.json({ success: false, error: "Feed generation failed" })
+    const errorMessage = error instanceof Error ? error.message : "An unknown error occurred"
+    return NextResponse.json({ success: false, error: `Feed generation failed: ${errorMessage}` })
   }
 }
 
-async function detectContentWithGemini(html: string, url: string) {
+async function detectContentWithGroq(html: string, url: string) {
   try {
-    const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" })
-
-    const prompt = `
+    const chatCompletion = await groq.chat.completions.create({
+      messages: [
+        {
+          role: "system",
+          content: `
 You are an expert web scraper analyzing HTML to create RSS feeds. Analyze this HTML content from ${url} and suggest the best CSS selectors for extracting RSS feed items.
 
 HTML Content (truncated for analysis):
@@ -244,7 +254,7 @@ Please analyze the HTML structure and provide CSS selectors in this exact JSON f
 {
   "item": "CSS selector for each content item/article",
   "title": "CSS selector for the title within each item",
-  "link": "CSS selector for the link within each item", 
+  "link": "CSS selector for the link within each item",
   "description": "CSS selector for description/excerpt within each item (can be empty string if none)"
 }
 
@@ -266,22 +276,24 @@ Examples of good selectors:
 - link: "a[href], .link"
 
 Return ONLY the JSON object, no additional text or explanation.
-`
+`,
+        },
+      ],
+      model: "llama3-8b-8192",
+      temperature: 0,
+      max_tokens: 1024,
+      top_p: 1,
+      stream: false,
+      response_format: { type: "json_object" },
+    })
 
-    const result = await model.generateContent(prompt)
-    const response = await result.response
-    const text = response.text()
+    const text = chatCompletion.choices[0]?.message?.content
+    if (!text) {
+      throw new Error("Empty response from Groq API")
+    }
 
     try {
-      // Remove markdown code block formatting if present
-      let cleanedText = text.trim()
-      if (cleanedText.startsWith("```json")) {
-        cleanedText = cleanedText.replace(/^```json\s*/, "").replace(/\s*```$/, "")
-      } else if (cleanedText.startsWith("```")) {
-        cleanedText = cleanedText.replace(/^```\s*/, "").replace(/\s*```$/, "")
-      }
-
-      const selectors = JSON.parse(cleanedText)
+      const selectors = JSON.parse(text)
 
       // Validate that we have non-empty required selectors
       if (
@@ -302,7 +314,7 @@ Return ONLY the JSON object, no additional text or explanation.
       return fallbackDetection()
     }
   } catch (error) {
-    console.error("Gemini AI error:", error)
+    console.error("Groq AI error:", error)
     return fallbackDetection()
   }
 }
